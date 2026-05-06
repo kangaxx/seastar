@@ -519,6 +519,24 @@ seastar_add_test (epoll
   SOURCES epoll_test.cc
   RUN_ARGS --reactor-backend epoll)
 
+seastar_add_test (xtrader_domain
+  SOURCES
+    xtrader_domain_test.cc
+    ../../src/xtrader/domain_types.cc)
+
+seastar_add_test (xtrader_historical_data_manager
+  SOURCES
+    xtrader_historical_data_manager_test.cc
+    ../../src/xtrader/historical_data_manager.cc)
+
+seastar_add_test (xtrader_runtime_sharded
+  SOURCES
+    xtrader_runtime_sharded_test.cc
+    ../../src/xtrader/domain_types.cc
+    ../../src/xtrader/ctp_adapter.cc
+    ../../src/xtrader/runtime_engine.cc
+    ../../src/xtrader/runtime_sharded.cc)
+
 seastar_add_test (reactor_backend
   SOURCES reactor_backend_test.cc)
 
