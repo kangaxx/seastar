@@ -24,3 +24,11 @@ seastar_add_app (xtrader_demo
     ../../src/xtrader/runtime_engine.cc
     ../../src/xtrader/runtime_sharded.cc
     ../../src/xtrader/historical_data_manager.cc)
+
+seastar_add_app (xtrader_cli
+  SOURCES
+    xtrader_cli.cc
+    ../../src/xtrader/historical_data_manager.cc
+    ../../src/xtrader/redis_sync_client.cc)
+
+target_link_libraries (app_xtrader_cli PRIVATE hiredis)
