@@ -17,6 +17,7 @@
  */
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/xtrader/data_importer.hh>
 #include <seastar/xtrader/historical_data_manager.hh>
 #include <seastar/xtrader/redis_sync_client.hh>
 
@@ -47,6 +48,10 @@ struct launch_options {
     std::filesystem::path data_root = "/data/x_trader_data";
     std::string redis_host = "127.0.0.1";
     int redis_port = 6379;
+    std::filesystem::path import_source_path;
+    seastar::xtrader::import_source_type import_source_type = seastar::xtrader::import_source_type::taobao_csv;
+    seastar::xtrader::import_mode import_mode = seastar::xtrader::import_mode::incremental;
+    std::filesystem::path import_config_path;
 };
 
 std::string to_lower(std::string input) {
@@ -448,6 +453,156 @@ void run_placeholder_menu(const char* title) {
     }
 }
 
+nav run_import_menu(launch_options& options) {
+    while (true) {
+        std::cout << "\n[Import Menu]\n"
+            << "  current source_path: " << (options.import_source_path.empty() ? "(empty)" : options.import_source_path.generic_string()) << "\n"
+            << "  current source_type: " << seastar::xtrader::to_string(options.import_source_type) << "\n"
+            << "  current import_mode: " << seastar::xtrader::to_string(options.import_mode) << "\n"
+            << "  current config_path: " << (options.import_config_path.empty() ? "(default: env or /xtrader_conf/import.conf)" : options.import_config_path.generic_string()) << "\n"
+            << "  1) Set source path\n"
+            << "  2) Set source type (taobao_csv/ctp_clean_csv)\n"
+            << "  3) Set import mode (incremental/overwrite)\n"
+            << "  4) Set config path\n"
+            << "  5) Execute import\n"
+            << "  u) Up one level\n"
+            << "  h) Back to root\n"
+            << "  q) Quit\n"
+            << "Select: ";
+
+        std::string input;
+        if (!std::getline(std::cin, input)) {
+            return nav::quit;
+        }
+
+        const auto menu_nav = parse_nav(input);
+        if (menu_nav != nav::stay) {
+            return menu_nav;
+        }
+
+        const auto normalized = to_lower(input);
+        if (normalized == "1" || normalized == "path") {
+            std::cout << "Enter import source path: ";
+            std::string value;
+            if (!std::getline(std::cin, value)) {
+                return nav::quit;
+            }
+            const auto inner_nav = parse_nav(value);
+            if (inner_nav == nav::quit || inner_nav == nav::root) {
+                return inner_nav;
+            }
+            if (inner_nav == nav::back) {
+                continue;
+            }
+            options.import_source_path = value;
+            continue;
+        }
+
+        if (normalized == "2" || normalized == "source") {
+            std::cout << "Enter source type (taobao_csv/ctp_clean_csv): ";
+            std::string value;
+            if (!std::getline(std::cin, value)) {
+                return nav::quit;
+            }
+            const auto inner_nav = parse_nav(value);
+            if (inner_nav == nav::quit || inner_nav == nav::root) {
+                return inner_nav;
+            }
+            if (inner_nav == nav::back) {
+                continue;
+            }
+            seastar::xtrader::import_source_type source_type;
+            if (!seastar::xtrader::parse_source_type(value, source_type)) {
+                std::cout << "Invalid source type." << std::endl;
+                continue;
+            }
+            options.import_source_type = source_type;
+            continue;
+        }
+
+        if (normalized == "3" || normalized == "mode") {
+            std::cout << "Enter import mode (incremental/overwrite): ";
+            std::string value;
+            if (!std::getline(std::cin, value)) {
+                return nav::quit;
+            }
+            const auto inner_nav = parse_nav(value);
+            if (inner_nav == nav::quit || inner_nav == nav::root) {
+                return inner_nav;
+            }
+            if (inner_nav == nav::back) {
+                continue;
+            }
+            seastar::xtrader::import_mode mode;
+            if (!seastar::xtrader::parse_import_mode(value, mode)) {
+                std::cout << "Invalid import mode." << std::endl;
+                continue;
+            }
+            options.import_mode = mode;
+            continue;
+        }
+
+        if (normalized == "4" || normalized == "config") {
+            std::cout << "Enter config path (empty for default): ";
+            std::string value;
+            if (!std::getline(std::cin, value)) {
+                return nav::quit;
+            }
+            const auto inner_nav = parse_nav(value);
+            if (inner_nav == nav::quit || inner_nav == nav::root) {
+                return inner_nav;
+            }
+            if (inner_nav == nav::back) {
+                continue;
+            }
+            options.import_config_path = value;
+            continue;
+        }
+
+        if (normalized == "5" || normalized == "run" || normalized == "execute") {
+            seastar::xtrader::import_options import_options;
+            import_options.source_path = options.import_source_path.generic_string();
+            import_options.source_type = options.import_source_type;
+            import_options.mode = options.import_mode;
+            import_options.config_path = options.import_config_path.generic_string();
+
+            seastar::xtrader::data_importer importer;
+            const auto result = importer.execute(import_options);
+
+            std::cout << "Import finished: " << (result.success ? "success" : "failed") << std::endl;
+            std::cout << "  message: " << result.message << std::endl;
+            std::cout << "  scanned_files: " << result.scanned_files
+                << ", success_files: " << result.success_files
+                << ", skipped_files: " << result.skipped_files
+                << ", failed_files: " << result.failed_files << std::endl;
+            std::cout << "  rows_added: " << result.rows_added
+                << ", rows_overwritten: " << result.rows_overwritten
+                << ", rows_skipped: " << result.rows_skipped
+                << ", invalid_rows: " << result.invalid_rows << std::endl;
+            if (!result.target_root.empty()) {
+                std::cout << "  target_root: " << result.target_root.generic_string() << std::endl;
+            }
+            if (!result.report_path.empty()) {
+                std::cout << "  report_path: " << result.report_path.generic_string() << std::endl;
+            }
+            if (!result.file_reports.empty()) {
+                const std::size_t preview = std::min<std::size_t>(result.file_reports.size(), 5);
+                std::cout << "  file preview:" << std::endl;
+                for (std::size_t i = 0; i < preview; ++i) {
+                    const auto& item = result.file_reports[i];
+                    std::cout << "    [" << (i + 1) << "] "
+                        << item.source_file.generic_string()
+                        << " => " << item.status
+                        << " (" << item.message << ")" << std::endl;
+                }
+            }
+            continue;
+        }
+
+        std::cout << "Invalid input." << std::endl;
+    }
+}
+
 void run_root_menu() {
     launch_options options;
     seastar::xtrader::redis_sync_client redis;
@@ -490,7 +645,10 @@ void run_root_menu() {
             continue;
         }
         if (normalized == "i" || normalized == "import") {
-            run_placeholder_menu("Import");
+            const auto n = run_import_menu(options);
+            if (n == nav::quit) {
+                break;
+            }
             continue;
         }
         if (normalized == "b" || normalized == "brief" || normalized == "data-brief") {

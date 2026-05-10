@@ -28,6 +28,7 @@ seastar_add_app (xtrader_demo
 seastar_add_app (xtrader_cli
   SOURCES
     xtrader_cli.cc
+    ../../src/xtrader/data_importer.cc
     ../../src/xtrader/historical_data_manager.cc
     ../../src/xtrader/redis_sync_client.cc)
 
