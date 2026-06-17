@@ -21,6 +21,8 @@
 
 namespace seastar::xtrader::domain {
 
+// === Enums ===
+
 enum class side {
     buy,
     sell,
@@ -44,13 +46,47 @@ enum class order_status {
     accepted,
     partially_filled,
     filled,
+    canceled,
     rejected,
+    unknown,
+    not_touched,
+    touched,
 };
+
+enum class order_type {
+    limit,
+    market,
+    fok,
+    fak,
+};
+
+enum class order_submit_status {
+    insert_submitted,
+    cancel_submitted,
+    modify_submitted,
+    accepted,
+    insert_rejected,
+    cancel_rejected,
+    modify_rejected,
+};
+
+enum class event_type {
+    order,
+    trade,
+    cancel,
+    error_insert,
+    error_cancel,
+};
+
+// === Structs ===
 
 struct instrument_spec {
     sstring instrument_id;
+    sstring exchange_id;
     int volume_multiple = 1;
     double price_tick = 0.0;
+    bool is_trading = false;
+    bool use_history_position = false;
 };
 
 struct order_request {
@@ -88,11 +124,107 @@ public:
         return _view;
     }
 
+    void set_frozen_margin(double margin) { _frozen_margin = margin; }
+    [[nodiscard]] double frozen_margin() const noexcept { return _frozen_margin; }
+
+    void set_long_pending(int p) { _long_pending = p; }
+    void set_short_pending(int p) { _short_pending = p; }
+    [[nodiscard]] int long_pending() const noexcept { return _long_pending; }
+    [[nodiscard]] int short_pending() const noexcept { return _short_pending; }
+
 private:
     static int consume(int& today, int& yesterday, int volume) noexcept;
 
 private:
     position_view _view;
+    double _frozen_margin = 0.0;
+    int _long_pending = 0;
+    int _short_pending = 0;
+};
+
+struct market_data {
+    sstring instrument_id;
+    sstring update_time;
+    int update_millisec = 0;
+    double pre_close_price = 0.0;
+    double pre_settlement_price = 0.0;
+    double last_price = 0.0;
+    int volume = 0;
+    int last_volume = 0;
+    double open_interest = 0.0;
+    double last_open_interest = 0.0;
+    double open_price = 0.0;
+    double highest_price = 0.0;
+    double lowest_price = 0.0;
+    double upper_limit_price = 0.0;
+    double lower_limit_price = 0.0;
+    double settlement_price = 0.0;
+    double bid_price[5] = {};
+    int bid_volume[5] = {};
+    double ask_price[5] = {};
+    int ask_volume[5] = {};
+    double average_price = 0.0;
+};
+
+struct order {
+    sstring strategy_id;
+    uint64_t order_ref = 0;
+    int front_id = 0;
+    int session_id = 0;
+    sstring exchange_id;
+    sstring instrument_id;
+    side direction = side::buy;
+    offset_flag offset = offset_flag::open;
+    order_type type = order_type::limit;
+    double limit_price = 0.0;
+    int volume_original = 0;
+    int volume_traded = 0;
+    int volume_remaining = 0;
+    int request_id = 0;
+    sstring order_local_id;
+    sstring order_sys_id;
+    order_submit_status submit_status = order_submit_status::insert_submitted;
+    order_status status = order_status::submitted;
+    sstring status_msg;
+    sstring insert_time;
+    sstring cancel_time;
+    int error_id = 0;
+    sstring error_msg;
+};
+
+struct trade_report {
+    sstring trade_id;
+    sstring order_sys_id;
+    sstring instrument_id;
+    side direction = side::buy;
+    offset_flag offset = offset_flag::open;
+    double price = 0.0;
+    int volume = 0;
+    sstring trade_time;
+    double commission = 0.0;
+};
+
+struct trading_account {
+    double pre_balance = 0.0;
+    double balance = 0.0;
+    double available = 0.0;
+    double curr_margin = 0.0;
+    double frozen_margin = 0.0;
+    double frozen_commission = 0.0;
+    double commission = 0.0;
+    double close_profit = 0.0;
+    double position_profit = 0.0;
+    sstring trading_day;
+};
+
+struct account_delta {
+    sstring instrument_id;
+    side direction = side::buy;
+    offset_flag offset = offset_flag::open;
+    int traded_volume = 0;
+    double price = 0.0;
+    double margin_change = 0.0;
+    double close_profit_change = 0.0;
 };
 
 } // namespace seastar::xtrader::domain

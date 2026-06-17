@@ -31,6 +31,7 @@ public:
     future<> stop();
 
     [[nodiscard]] future<domain::order_status> submit_order(const domain::order_request& request);
+    future<> apply_trade_report(const domain::trade_report& report);
     [[nodiscard]] future<std::optional<domain::position_view>> snapshot_positions();
 
 private:

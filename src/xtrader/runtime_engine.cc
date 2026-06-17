@@ -44,16 +44,21 @@ future<domain::order_status> runtime_engine::submit_order(const domain::order_re
         return make_ready_future<domain::order_status>(domain::order_status::rejected);
     }
 
-    return _ctp.send_order(request).then([this, direction = request.direction, offset = request.offset, volume = request.volume] (domain::order_status st) {
-        if (st == domain::order_status::accepted || st == domain::order_status::filled) {
-            _positions.apply_trade(domain::position_delta {
-                .direction = direction,
-                .offset = offset,
-                .traded_volume = volume,
-            });
-        }
-        return st;
+    // Position/account state must be driven by trade fills instead of order acceptance.
+    return _ctp.send_order(request);
+}
+
+future<> runtime_engine::apply_trade_report(const domain::trade_report& report) {
+    if (!_started || report.volume <= 0) {
+        return make_ready_future<>();
+    }
+
+    _positions.apply_trade(domain::position_delta {
+        .direction = report.direction,
+        .offset = report.offset,
+        .traded_volume = report.volume,
     });
+    return make_ready_future<>();
 }
 
 const domain::position_book& runtime_engine::positions() const noexcept {

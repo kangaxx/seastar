@@ -29,6 +29,7 @@ public:
     future<> stop();
 
     [[nodiscard]] future<domain::order_status> submit_order(const domain::order_request& request);
+    future<> apply_trade_report(const domain::trade_report& report);
     [[nodiscard]] const domain::position_book& positions() const noexcept;
 
 private:

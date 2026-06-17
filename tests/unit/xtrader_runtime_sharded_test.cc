@@ -38,7 +38,24 @@ SEASTAR_THREAD_TEST_CASE(xtrader_runtime_sharded_start_submit_stop) {
 
     auto snapshot = runtime.snapshot_positions().get();
     BOOST_REQUIRE(snapshot.has_value());
+    BOOST_REQUIRE_EQUAL(snapshot->long_today, 0);
+    BOOST_REQUIRE_EQUAL(snapshot->short_today, 0);
+
+    runtime.apply_trade_report(seastar::xtrader::domain::trade_report {
+        .trade_id = "trade-1",
+        .order_sys_id = "order-1",
+        .instrument_id = "rb9999",
+        .direction = seastar::xtrader::domain::side::buy,
+        .offset = seastar::xtrader::domain::offset_flag::open,
+        .price = 3500.0,
+        .volume = 1,
+        .trade_time = "09:31:00",
+    }).get();
+
+    snapshot = runtime.snapshot_positions().get();
+    BOOST_REQUIRE(snapshot.has_value());
     BOOST_REQUIRE_EQUAL(snapshot->long_today, 1);
+    BOOST_REQUIRE_EQUAL(snapshot->short_today, 0);
 
     runtime.stop().get();
 }

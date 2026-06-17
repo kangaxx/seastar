@@ -49,6 +49,16 @@ future<domain::order_status> runtime_sharded::submit_order(const domain::order_r
     });
 }
 
+future<> runtime_sharded::apply_trade_report(const domain::trade_report& report) {
+    if (!_engines.local_is_initialized()) {
+        return make_ready_future<>();
+    }
+
+    return _engines.invoke_on(0, [report] (runtime_engine& engine) {
+        return engine.apply_trade_report(report);
+    });
+}
+
 future<std::optional<domain::position_view>> runtime_sharded::snapshot_positions() {
     if (!_engines.local_is_initialized()) {
         return make_ready_future<std::optional<domain::position_view>>(std::nullopt);
