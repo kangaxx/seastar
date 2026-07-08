@@ -19,6 +19,7 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/sstring.hh>
+#include <seastar/core/timer.hh>
 #include <seastar/xtrader/domain_types.hh>
 #include <seastar/xtrader/spsc_ring_buffer.hh>
 
@@ -81,10 +82,16 @@ public:
     static constexpr unsigned gateway_shard_id = 0;
     static unsigned instrument_shard_id(const sstring& instrument_id, unsigned num_shards);
 
-private:
-    void start_md_drain_loop();
-    void start_trader_drain_loop();
+    // P1-2 FIX: Explicit SPI callback declarations (stubs for Phase 3)
+    // These methods are called from CTP API threads and push data into ring buffers.
+    // Implementation must be async-safe (no blocking, no direct shard access).
+    void on_market_data(const domain::market_data& data);      // Pushes to md_ring
+    void on_trade_report(const domain::trade_report& report);   // Pushes to trader_ring
+    void on_order_return(const domain::order& order);           // Pushes to trader_ring
+    void on_cancel_return(const domain::order& order);          // Pushes to trader_ring
+    void on_error(int error_id, const sstring& error_msg);      // Logs error
 
+    // P1-1 FIX: Drain methods called by timer<>, not recursive scheduling
     void drain_md_ring();
     void drain_trader_ring();
 
@@ -94,6 +101,10 @@ private:
 
     md_ring_buffer _md_ring;
     trader_ring_buffer _trader_ring;
+
+    // P1-1 FIX: Use timer for periodic drain instead of recursive scheduling
+    timer<> _md_drain_timer;
+    timer<> _trader_drain_timer;
 
     uint64_t _order_ref_seq = 0;
 
@@ -106,5 +117,10 @@ private:
 
 inline constexpr unsigned default_gateway_shard = 0;
 inline constexpr unsigned default_account_shard = 1;
+
+// === Drain Loop Constants ===
+
+inline constexpr size_t max_drain_per_tick = 1024;
+inline constexpr size_t max_drain_us = 500;  // 500us budget per reactor tick
 
 } // namespace seastar::xtrader

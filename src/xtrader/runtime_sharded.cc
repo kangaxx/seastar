@@ -17,16 +17,51 @@
  */
 #include <seastar/xtrader/runtime_sharded.hh>
 
+#include <stdexcept>
+
 namespace seastar::xtrader {
+
+runtime_sharded::runtime_sharded(unsigned account_shard) noexcept
+    : _account_shard_id(account_shard)
+{}
 
 future<> runtime_sharded::start() {
     if (_engines.local_is_initialized()) {
         return make_ready_future<>();
     }
 
-    return _engines.start().then([this] {
-        return _engines.invoke_on_all([] (runtime_engine& engine) {
+    // P0 FIX: Unified initialization with failure checking
+    // 1. Set account_shard_id and gateway_shard_id on all engines
+    // 2. Initialize account_service on account shard (MUST succeed)
+    // 3. Start each engine
+
+    unsigned init_failures = 0;
+
+    return _engines.start().then([this, &init_failures] {
+        return _engines.invoke_on_all(
+            [account_shard = _account_shard_id, gateway_shard = _gateway_shard, &init_failures] (runtime_engine& engine) {
+            engine.set_account_shard(account_shard);
+            engine.set_gateway_shard(gateway_shard);
+
+            // P0 FIX: Initialize account service on account shard
+            // If this is the account shard, initialization MUST succeed
+            if (smp::shard_id() == account_shard) {
+                if (!engine.init_account_service(1000000.0)) {  // Default pre-balance
+                    std::cerr << "[FATAL] runtime_sharded::start: "
+                              << "account service initialization failed on shard " << smp::shard_id()
+                              << ". Cannot start - will cause position/account mismatch!" << std::endl;
+                    ++init_failures;
+                }
+            }
+
             return engine.start();
+        }).then([&init_failures] {
+            if (init_failures > 0) {
+                std::cerr << "[FATAL] runtime_sharded::start: "
+                          << init_failures << " shard(s) failed to initialize. Aborting start!" << std::endl;
+                return make_exception_future<>(std::runtime_error("Account service initialization failed"));
+            }
+            return make_ready_future<>();
         });
     });
 }
@@ -44,7 +79,8 @@ future<domain::order_status> runtime_sharded::submit_order(const domain::order_r
         return make_ready_future<domain::order_status>(domain::order_status::rejected);
     }
 
-    return _engines.invoke_on(0, [request] (runtime_engine& engine) {
+    // FIX: Use _gateway_shard instead of hardcoded 0
+    return _engines.invoke_on(_gateway_shard, [request] (runtime_engine& engine) {
         return engine.submit_order(request);
     });
 }
@@ -54,7 +90,8 @@ future<> runtime_sharded::apply_trade_report(const domain::trade_report& report)
         return make_ready_future<>();
     }
 
-    return _engines.invoke_on(0, [report] (runtime_engine& engine) {
+    // FIX: Use _gateway_shard instead of hardcoded 0
+    return _engines.invoke_on(_gateway_shard, [report] (runtime_engine& engine) {
         return engine.apply_trade_report(report);
     });
 }
@@ -64,7 +101,8 @@ future<std::optional<domain::position_view>> runtime_sharded::snapshot_positions
         return make_ready_future<std::optional<domain::position_view>>(std::nullopt);
     }
 
-    return _engines.invoke_on(0, [] (runtime_engine& engine) {
+    // FIX: Use _gateway_shard instead of hardcoded 0
+    return _engines.invoke_on(_gateway_shard, [] (runtime_engine& engine) {
         return make_ready_future<std::optional<domain::position_view>>(engine.positions().snapshot());
     });
 }

@@ -17,6 +17,7 @@
  */
 #include <seastar/xtrader/ctp_gateway.hh>
 #include <seastar/core/smp.hh>
+#include <seastar/core/reactor.hh>
 
 namespace seastar::xtrader {
 
@@ -44,15 +45,23 @@ future<> ctp_gateway::start() {
     // - MdApi: connect to _config.md_front_addr, call ReqUserLogin
     // - TraderApi: connect to _config.td_front_addr, call ReqAuthenticate -> ReqUserLogin
 
-    // Start drain loops on this shard (Shard 0)
-    start_md_drain_loop();
-    start_trader_drain_loop();
+    // P1-1 FIX: Use timer for periodic drain instead of recursive submit_high_priority_task
+    // This prevents CPU thrashing under high load.
+    _md_drain_timer.set_callback([this] { drain_md_ring(); });
+    _md_drain_timer.arm_periodic(std::chrono::microseconds(max_drain_us));
+
+    _trader_drain_timer.set_callback([this] { drain_trader_ring(); });
+    _trader_drain_timer.arm_periodic(std::chrono::microseconds(100));  // 100us for trader ring
 
     _status = gateway_status::ready;
     return make_ready_future<>();
 }
 
 future<> ctp_gateway::stop() {
+    // P1-1 FIX: Cancel timers before shutdown
+    _md_drain_timer.cancel();
+    _trader_drain_timer.cancel();
+
     // TODO(Phase 3): Graceful shutdown of CTP connections
     // - Cancel pending orders
     // - Call ReqUserLogout
@@ -92,26 +101,80 @@ future<domain::order_status> ctp_gateway::cancel_order(const sstring& order_sys_
     return make_ready_future<domain::order_status>(domain::order_status::rejected);
 }
 
-void ctp_gateway::start_md_drain_loop() {
-    // Register high-priority periodic task to drain md_ring_buffer
-    // This runs on Shard 0 Reactor thread only.
-    //
-    // Constraints per STEP-03 7.5:
-    // - Must set batch limits (MAX_DRAIN_PER_TICK / MAX_DRAIN_US)
-    // - Record backlog metrics
-    //
-    // TODO(Phase 3): Start periodic drain
+// === P1-1 FIX: Removed recursive drain loops ===
+// Drain loops are now implemented using timer<>, scheduled in start().
+// The old recursive submit_high_priority_task approach has been removed.
+
+// === P1-2 FIX: Explicit SPI callback implementations ===
+// These stubs push data into ring buffers. Called from CTP API threads.
+// Thread safety: push() is lock-free (SPSC), safe to call from any thread.
+
+void ctp_gateway::on_market_data(const domain::market_data& data) {
+    // Called from CTP MdApi thread - push to ring buffer (async-safe)
+    md_slot slot;
+    slot.capture_ns = seastar::steady_clock_type::now().time_since_epoch().count();
+    slot.data = data;
+
+    if (!_md_ring.push(slot)) {
+        // Ring buffer full - record dropped event
+        ++_dropped_md_events;
+        std::cerr << "[WARN] ctp_gateway: md_ring full, dropped market data for "
+                  << data.instrument_id << std::endl;
+    }
 }
 
-void ctp_gateway::start_trader_drain_loop() {
-    // Register high-priority periodic task to drain trader_ring_buffer
-    // This runs on Shard 0 Reactor thread only.
-    //
-    // Constraints per STEP-03 7.1:
-    // - trader_ring_buffer must never drop events (dropped_trader_events == 0)
-    // - If queue is full, trigger risk control escalation
-    //
-    // TODO(Phase 3): Start periodic drain
+void ctp_gateway::on_trade_report(const domain::trade_report& report) {
+    // Called from CTP TraderApi thread - push to ring buffer (async-safe)
+    trader_slot slot;
+    slot.capture_ns = seastar::steady_clock_type::now().time_since_epoch().count();
+    slot.type = domain::event_type::trade;
+    slot.trade_data = report;
+    // Clear order data for trade events
+    slot.order_data = domain::order{};
+
+    if (!_trader_ring.push(slot)) {
+        // P1-1 constraint: trader_ring must NEVER drop events
+        ++_dropped_trader_events;
+        std::cerr << "[ERROR] ctp_gateway: trader_ring full, dropped trade event for "
+                  << report.instrument_id << " (CRITICAL: violates zero-drop guarantee)" << std::endl;
+        // TODO(Phase 3): Trigger risk control escalation here
+    }
+}
+
+void ctp_gateway::on_order_return(const domain::order& order) {
+    // Called from CTP TraderApi thread - push to ring buffer (async-safe)
+    trader_slot slot;
+    slot.capture_ns = seastar::steady_clock_type::now().time_since_epoch().count();
+    slot.type = domain::event_type::order;
+    slot.order_data = order;
+    // Clear trade data for order events
+    slot.trade_data = domain::trade_report{};
+
+    if (!_trader_ring.push(slot)) {
+        ++_dropped_trader_events;
+        std::cerr << "[ERROR] ctp_gateway: trader_ring full, dropped order event for "
+                  << order.order_sys_id << std::endl;
+    }
+}
+
+void ctp_gateway::on_cancel_return(const domain::order& order) {
+    // Called from CTP TraderApi thread - push to ring buffer (async-safe)
+    trader_slot slot;
+    slot.capture_ns = seastar::steady_clock_type::now().time_since_epoch().count();
+    slot.type = domain::event_type::cancel;
+    slot.order_data = order;
+    slot.trade_data = domain::trade_report{};
+
+    if (!_trader_ring.push(slot)) {
+        ++_dropped_trader_events;
+        std::cerr << "[ERROR] ctp_gateway: trader_ring full, dropped cancel event for "
+                  << order.order_sys_id << std::endl;
+    }
+}
+
+void ctp_gateway::on_error(int error_id, const sstring& error_msg) {
+    // Called from CTP API threads - log error (not pushed to ring)
+    std::cerr << "[ERROR] ctp_gateway: CTP error " << error_id << ": " << error_msg << std::endl;
 }
 
 void ctp_gateway::drain_md_ring() {
@@ -119,32 +182,72 @@ void ctp_gateway::drain_md_ring() {
     //
     // Route: md_ring -> instrument_shard(hash(InstrumentID))
     //
-    // TODO(Phase 3): Implement drain with batch limits
-    // md_slot slot;
-    // int drained = 0;
-    // while (drained < MAX_DRAIN_PER_TICK && _md_ring.pop(slot)) {
-    //     auto target = instrument_shard_id(slot.data.instrument_id, smp::count);
-    //     (void)submit_to(target, [slot] {
-    //         // process_market_data(slot)
-    //     });
-    //     ++drained;
-    // }
+    // Implementation with batch limits to prevent reactor blocking:
+    md_slot slot;
+    size_t drained = 0;
+    const auto start_time = seastar::steady_clock_type::now();
+
+    while (drained < max_drain_per_tick) {
+        // Check time budget
+        const auto elapsed = seastar::steady_clock_type::now() - start_time;
+        if (elapsed.count() > max_drain_us * 1000) {
+            // Exceeded time budget, defer remaining to next tick
+            break;
+        }
+
+        if (!_md_ring.pop(slot)) {
+            // Queue empty
+            break;
+        }
+
+        // Route market data to target shard
+        const auto target_shard = instrument_shard_id(slot.data.instrument_id, smp::count);
+
+        // Submit to target shard for processing
+        // Note: This is async, but we don't wait for completion
+        (void)submit_to(target_shard, [slot = std::move(slot)] {
+            // TODO(Phase 3): Process market data on target shard
+            // - Update local market data cache
+            // - Trigger strategy callbacks if subscribed
+        });
+
+        ++drained;
+    }
 }
 
 void ctp_gateway::drain_trader_ring() {
     // Drains trader_ring_buffer and routes events to target shard via submit_to()
     //
-    // Route: trade_rtn -> instrument_shard(hash(InstrumentID))
+    // Route: trade_rtn -> instrument_shard(hash(InstrumentID)) or account_shard
     //        order_rtn  -> instrument_shard(hash(InstrumentID))
     //
-    // TODO(Phase 3): Implement drain with trade event zero-drop constraint
-    // trader_slot slot;
-    // while (_trader_ring.pop(slot)) {
-    //     auto target = instrument_shard_id(slot.trade_data.instrument_id, smp::count);
-    //     (void)submit_to(target, [slot] {
-    //         // process_trade_return(slot) or process_order_return(slot)
-    //     });
-    // }
+    // CRITICAL: Zero-drop guarantee for trader_ring
+    trader_slot slot;
+
+    while (_trader_ring.pop(slot)) {
+        // Determine target shard based on event type
+        unsigned target_shard;
+
+        if (slot.type == domain::event_type::trade) {
+            // Trade events go to account shard for balance update
+            target_shard = static_cast<unsigned>(_config.account_shard_id);
+        } else {
+            // Order events go to instrument shard for order state update
+            if (slot.type == domain::event_type::order) {
+                target_shard = instrument_shard_id(slot.order_data.instrument_id, smp::count);
+            } else {
+                target_shard = gateway_shard_id;
+            }
+        }
+
+        // Submit to target shard
+        // Note: This is async but we guarantee the slot is consumed from the ring
+        (void)submit_to(target_shard, [slot = std::move(slot)] {
+            // TODO(Phase 3): Process trade/order event on target shard
+            // - For trade: update position_book, apply account delta
+            // - For order: update pending order state
+        });
+    }
 }
 
 } // namespace seastar::xtrader

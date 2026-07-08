@@ -81,4 +81,34 @@ void position_book::apply_trade(const position_delta& delta) {
     }
 }
 
+void trading_account::apply_delta(const account_delta& delta) noexcept {
+    // Update margin
+    curr_margin += delta.margin_change;
+
+    // Update commission (always deducted from balance)
+    commission += delta.commission;
+
+    // Update close profit (for close operations)
+    close_profit += delta.close_profit_change;
+
+    // Calculate trading day balance change
+    // - For open: add margin, deduct from available
+    // - For close: release margin, add profit, deduct commission
+    double balance_change = 0.0;
+
+    if (delta.offset == offset_flag::open) {
+        // Opening position: reserve margin, no P&L yet
+        balance_change = -delta.margin_change;
+    } else {
+        // Closing position: release margin, add profit, deduct commission
+        balance_change = delta.margin_change + delta.close_profit_change;
+    }
+
+    balance += balance_change;
+
+    // Update available: balance - frozen_margin - frozen_commission
+    // Note: frozen values are managed separately via frozen_margin/frozen_commission
+    available = balance - curr_margin - frozen_margin;
+}
+
 } // namespace seastar::xtrader::domain

@@ -204,6 +204,17 @@ struct trade_report {
     double commission = 0.0;
 };
 
+struct account_delta {
+    sstring instrument_id;
+    side direction = side::buy;
+    offset_flag offset = offset_flag::open;
+    int traded_volume = 0;
+    double price = 0.0;
+    double commission = 0.0;          // P0-2 FIX: 添加 commission 字段
+    double margin_change = 0.0;
+    double close_profit_change = 0.0;
+};
+
 struct trading_account {
     double pre_balance = 0.0;
     double balance = 0.0;
@@ -215,16 +226,9 @@ struct trading_account {
     double close_profit = 0.0;
     double position_profit = 0.0;
     sstring trading_day;
-};
 
-struct account_delta {
-    sstring instrument_id;
-    side direction = side::buy;
-    offset_flag offset = offset_flag::open;
-    int traded_volume = 0;
-    double price = 0.0;
-    double margin_change = 0.0;
-    double close_profit_change = 0.0;
+    // Apply account delta and update balance/margin
+    void apply_delta(const account_delta& delta) noexcept;
 };
 
 } // namespace seastar::xtrader::domain

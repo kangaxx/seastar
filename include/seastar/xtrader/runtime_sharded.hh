@@ -27,6 +27,12 @@ namespace seastar::xtrader {
 
 class runtime_sharded {
 public:
+    static constexpr unsigned default_account_shard = 1;
+    static constexpr unsigned default_gateway_shard = 0;
+
+    explicit runtime_sharded(unsigned account_shard = default_account_shard) noexcept;
+    void set_gateway_shard(unsigned shard) noexcept { _gateway_shard = shard; }
+
     future<> start();
     future<> stop();
 
@@ -34,8 +40,12 @@ public:
     future<> apply_trade_report(const domain::trade_report& report);
     [[nodiscard]] future<std::optional<domain::position_view>> snapshot_positions();
 
+    [[nodiscard]] unsigned account_shard_id() const noexcept { return _account_shard_id; }
+
 private:
     sharded<runtime_engine> _engines;
+    unsigned _account_shard_id = default_account_shard;
+    unsigned _gateway_shard = default_gateway_shard;  // P1 FIX: explicit gateway shard
 };
 
 } // namespace seastar::xtrader

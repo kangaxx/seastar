@@ -20,7 +20,6 @@ seastar_add_app (xtrader_demo
   SOURCES
     xtrader_demo.cc
     ../../src/xtrader/domain_types.cc
-    ../../src/xtrader/ctp_adapter.cc
     ../../src/xtrader/ctp_gateway.cc
     ../../src/xtrader/runtime_engine.cc
     ../../src/xtrader/runtime_sharded.cc
