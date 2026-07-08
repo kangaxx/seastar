@@ -19,12 +19,21 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/future.hh>
 #include <seastar/xtrader/runtime_engine.hh>
+#include <seastar/xtrader/version.hh>
 
 #include <iostream>
 
 using namespace seastar;
 
 int main(int ac, char** av) {
+    // 打印版本信息
+    std::cout << "========================================" << std::endl;
+    std::cout << "X-Trader Seastar Trading Engine v"
+              << xtrader::version << std::endl;
+    std::cout << "Build: " << xtrader::build_type
+              << " | Git: " << xtrader::git_commit << std::endl;
+    std::cout << "========================================" << std::endl;
+
     app_template app;
 
     return app.run(ac, av, [] {

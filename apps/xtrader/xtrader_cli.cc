@@ -20,6 +20,7 @@
 #include <seastar/xtrader/data_importer.hh>
 #include <seastar/xtrader/historical_data_manager.hh>
 #include <seastar/xtrader/redis_sync_client.hh>
+#include <seastar/xtrader/version.hh>
 
 #include <algorithm>
 #include <cctype>
@@ -669,6 +670,14 @@ void run_root_menu() {
 } // namespace
 
 int main(int ac, char** av) {
+    // 打印版本信息
+    std::cout << "========================================" << std::endl;
+    std::cout << "X-Trader Seastar Trading Engine v"
+              << seastar::xtrader::version << std::endl;
+    std::cout << "Build: " << seastar::xtrader::build_type
+              << " | Git: " << seastar::xtrader::git_commit << std::endl;
+    std::cout << "========================================" << std::endl;
+
     seastar::app_template app;
 
     return app.run(ac, av, [] {
