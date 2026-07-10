@@ -35,11 +35,17 @@ class trading_account_service;
 //   - gateway: (on gateway shard) CTP connection and order routing
 class runtime_engine {
 public:
-    // Default constructor for sharded<> initialization
     runtime_engine() = default;
+    ~runtime_engine() = default;
+
+    runtime_engine(runtime_engine&&) noexcept = default;
+    runtime_engine& operator=(runtime_engine&&) noexcept = default;
+
+    // Disable copy (contains unique_ptr)
+    runtime_engine(const runtime_engine&) = delete;
+    runtime_engine& operator=(const runtime_engine&) = delete;
 
     explicit runtime_engine(unsigned account_shard);
-    ~runtime_engine();
 
     future<> start();
     future<> stop();

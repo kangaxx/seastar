@@ -190,7 +190,7 @@ void ctp_gateway::drain_md_ring() {
     while (drained < max_drain_per_tick) {
         // Check time budget
         const auto elapsed = seastar::steady_clock_type::now() - start_time;
-        if (elapsed.count() > max_drain_us * 1000) {
+        if (elapsed.count() > static_cast<long>(max_drain_us * 1000)) {
             // Exceeded time budget, defer remaining to next tick
             break;
         }
@@ -201,7 +201,7 @@ void ctp_gateway::drain_md_ring() {
         }
 
         // Route market data to target shard
-        const auto target_shard = instrument_shard_id(slot.data.instrument_id, smp::count);
+        const auto target_shard = instrument_shard_id(slot.data.instrument_id, smp::shard_count());
 
         // Submit to target shard for processing
         // Note: This is async, but we don't wait for completion
@@ -234,7 +234,7 @@ void ctp_gateway::drain_trader_ring() {
         } else {
             // Order events go to instrument shard for order state update
             if (slot.type == domain::event_type::order) {
-                target_shard = instrument_shard_id(slot.order_data.instrument_id, smp::count);
+                target_shard = instrument_shard_id(slot.order_data.instrument_id, smp::shard_count());
             } else {
                 target_shard = gateway_shard_id;
             }
@@ -242,7 +242,7 @@ void ctp_gateway::drain_trader_ring() {
 
         // Submit to target shard
         // Note: This is async but we guarantee the slot is consumed from the ring
-        (void)submit_to(target_shard, [slot = std::move(slot)] {
+        (void)smp::submit_to(target_shard, [slot = std::move(slot)] {
             // TODO(Phase 3): Process trade/order event on target shard
             // - For trade: update position_book, apply account delta
             // - For order: update pending order state
