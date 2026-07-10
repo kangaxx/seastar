@@ -17,6 +17,8 @@
  */
 #pragma once
 
+#include <seastar/xtrader/domain_types.hh>
+
 #include <atomic>
 #include <array>
 

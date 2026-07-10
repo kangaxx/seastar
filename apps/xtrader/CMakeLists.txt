@@ -28,13 +28,25 @@ seastar_add_app(xtrader_demo SOURCES
     xtrader_demo.cc
     ../../src/xtrader/domain_types.cc
     ../../src/xtrader/ctp_gateway.cc
+    ../../src/xtrader/ctp_spi_adapter.cc
+    ../../src/xtrader/pending_order_manager.cc
     ../../src/xtrader/runtime_engine.cc
     ../../src/xtrader/runtime_sharded.cc
     ../../src/xtrader/historical_data_manager.cc)
 
+# CTP API 配置
+set(CTP_API_DIR "${CMAKE_SOURCE_DIR}/api/ctp/v6.7.2/linux64")
+set(CTP_LIBS
+    "${CTP_API_DIR}/libthostmduserapi_se.so"
+    "${CTP_API_DIR}/libthosttraderapi_se.so")
+
 target_include_directories(app_xtrader_demo PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}/include)
+    ${CMAKE_SOURCE_DIR}/include
+    ${CTP_API_DIR})
+
+target_link_libraries(app_xtrader_demo PRIVATE
+    ${CTP_LIBS})
 
 seastar_add_app(xtrader_cli SOURCES
     xtrader_cli.cc

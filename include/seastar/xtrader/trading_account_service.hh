@@ -19,6 +19,8 @@
 
 #include <seastar/xtrader/domain_types.hh>
 
+#include <iostream>
+
 namespace seastar::xtrader {
 
 // trading_account_service manages trading account state on a specific shard.
