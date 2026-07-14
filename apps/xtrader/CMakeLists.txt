@@ -32,6 +32,12 @@ seastar_add_app(xtrader_demo SOURCES
     ../../src/xtrader/pending_order_manager.cc
     ../../src/xtrader/runtime_engine.cc
     ../../src/xtrader/runtime_sharded.cc
+    ../../src/xtrader/strategy_base.cc
+    ../../src/xtrader/strategy_lifecycle.cc
+    ../../src/xtrader/subscription_registry.cc
+    ../../src/xtrader/event_bus.cc
+    ../../src/xtrader/order_intent.cc
+    ../../src/xtrader/backtest_driver.cc
     ../../src/xtrader/historical_data_manager.cc)
 
 # CTP API 配置

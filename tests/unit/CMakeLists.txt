@@ -533,7 +533,7 @@ seastar_add_test (xtrader_runtime_sharded
   SOURCES
     xtrader_runtime_sharded_test.cc
     ../../src/xtrader/domain_types.cc
-    ../../src/xtrader/ctp_adapter.cc
+    ../../src/xtrader/ctp_spi_adapter.cc
     ../../src/xtrader/runtime_engine.cc
     ../../src/xtrader/runtime_sharded.cc)
 
