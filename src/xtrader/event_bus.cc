@@ -16,6 +16,7 @@
  * under the License.
  */
 #include <seastar/xtrader/event_bus.hh>
+#include <seastar/core/future-util.hh>
 #include <seastar/core/reactor.hh>
 
 #include <chrono>
@@ -98,20 +99,27 @@ void event_bus::dispatch_batch() {
                 continue;
             }
 
-            try {
-                strategy->on_market_data(*ctx, event.raw_md);
+            futurize_invoke([strategy, ctx, md = event.raw_md] () mutable {
+                return strategy->on_market_data(*ctx, md);
+            }).then([strategy] {
                 strategy->stats().signal_count++;
-            } catch (const std::exception& e) {
-                std::cerr << "[ERROR] event_bus: on_market_data FAILED, strategy="
-                          << sub.strategy_id << ", instrument="
-                          << event.instrument_id << ", error=" << e.what()
-                          << std::endl;
-            } catch (...) {
-                std::cerr << "[ERROR] event_bus: on_market_data FAILED, strategy="
-                          << sub.strategy_id << ", instrument="
-                          << event.instrument_id << ", unknown error"
-                          << std::endl;
-            }
+            }).handle_exception([strategy_id = sub.strategy_id,
+                                 instrument_id = event.instrument_id](std::exception_ptr ep) {
+                try {
+                    std::rethrow_exception(ep);
+                } catch (const std::exception& e) {
+                    std::cerr << "[ERROR] event_bus: on_market_data FAILED, strategy="
+                              << strategy_id << ", instrument="
+                              << instrument_id << ", error=" << e.what()
+                              << std::endl;
+                } catch (...) {
+                    std::cerr << "[ERROR] event_bus: on_market_data FAILED, strategy="
+                              << strategy_id << ", instrument="
+                              << instrument_id << ", unknown error"
+                              << std::endl;
+                }
+                return make_ready_future<>();
+            });
 
             strategy->stats().queue_depth++;
             ++dispatched;

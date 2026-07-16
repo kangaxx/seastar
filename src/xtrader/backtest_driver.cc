@@ -16,12 +16,97 @@
  * under the License.
  */
 #include <seastar/xtrader/backtest_driver.hh>
+#include <seastar/xtrader/historical_data_manager.hh>
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <iostream>
+#include <string_view>
 
 namespace seastar::xtrader {
+
+namespace {
+
+sstring to_lower_copy(std::string_view value) {
+    sstring result;
+    result.reserve(value.size());
+    for (char ch : value) {
+        result.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+    }
+    return result;
+}
+
+sstring normalize_trading_day(const std::string& datetime) {
+    const auto pos = datetime.find(' ');
+    const auto date = pos == std::string::npos ? datetime : datetime.substr(0, pos);
+
+    std::vector<std::string> parts;
+    std::string current;
+    for (char ch : date) {
+        if (ch == '/' || ch == '-') {
+            parts.push_back(current);
+            current.clear();
+        } else {
+            current.push_back(ch);
+        }
+    }
+    if (!current.empty()) {
+        parts.push_back(current);
+    }
+
+    if (parts.size() != 3) {
+        return {};
+    }
+
+    auto pad2 = [] (std::string value) {
+        if (value.size() == 1) {
+            value.insert(value.begin(), '0');
+        }
+        return value;
+    };
+
+    return sstring(parts[0] + pad2(parts[1]) + pad2(parts[2]));
+}
+
+sstring normalize_time_str(const std::string& datetime) {
+    const auto pos = datetime.find(' ');
+    if (pos == std::string::npos) {
+        return {};
+    }
+
+    const auto time = datetime.substr(pos + 1);
+    std::vector<std::string> parts;
+    std::string current;
+    for (char ch : time) {
+        if (ch == ':') {
+            parts.push_back(current);
+            current.clear();
+        } else {
+            current.push_back(ch);
+        }
+    }
+    if (!current.empty()) {
+        parts.push_back(current);
+    }
+
+    if (parts.size() < 2) {
+        return {};
+    }
+
+    auto pad2 = [] (std::string value) {
+        if (value.size() == 1) {
+            value.insert(value.begin(), '0');
+        }
+        return value;
+    };
+
+    std::string result = pad2(parts[0]) + ":" + pad2(parts[1]) + ":";
+    result += parts.size() > 2 ? pad2(parts[2]) : "00";
+    return sstring(std::move(result));
+}
+
+} // namespace
 
 // ==================== execution_simulator ====================
 
@@ -152,6 +237,65 @@ future<> backtest_driver::load_data(const sstring& instrument_id) {
     std::cout << "[INFO] backtest_driver: loading data for "
               << instrument_id << " from " << _cfg.data_root << std::endl;
 
+    historical_data_manager manager(std::filesystem::path(std::string(_cfg.data_root)));
+    std::string warning;
+    const auto datasets = manager.scan_datasets(&warning);
+
+    const auto instrument_key = to_lower_copy(instrument_id);
+    const auto dataset_it = std::find_if(datasets.begin(), datasets.end(),
+        [&instrument_key](const dataset_manifest& dataset) {
+            return to_lower_copy(dataset.symbol) == instrument_key;
+        });
+
+    if (dataset_it != datasets.end()) {
+        std::vector<historical_bar> bars;
+        if (manager.load_bars(*dataset_it, bars, &warning) && !bars.empty()) {
+            std::vector<tick_record> ticks;
+            ticks.reserve(bars.size());
+
+            int64_t timestamp_nanos = 0;
+            for (const auto& bar : bars) {
+                auto trading_day = normalize_trading_day(bar.datetime);
+                auto time_str = normalize_time_str(bar.datetime);
+                if (trading_day.empty() || time_str.empty()) {
+                    continue;
+                }
+
+                ticks.emplace_back(tick_record{
+                    .timestamp_nanos = timestamp_nanos,
+                    .trading_day = std::move(trading_day),
+                    .time_str = std::move(time_str),
+                    .last_price = bar.close,
+                    .open_price = bar.open,
+                    .high_price = bar.high,
+                    .low_price = bar.low,
+                    .close_price = bar.close,
+                    .volume = static_cast<int>(bar.volume),
+                    .turnover = bar.close * bar.volume,
+                    .open_interest = bar.open_interest,
+                });
+                timestamp_nanos += 60'000'000'000LL;
+            }
+
+            if (!ticks.empty()) {
+                _tick_data[instrument_id] = std::move(ticks);
+                _stats.total_ticks += _tick_data[instrument_id].size();
+
+                std::cout << "[INFO] backtest_driver: loaded "
+                          << _tick_data[instrument_id].size()
+                          << " rows from manifest-backed dataset for "
+                          << instrument_id << std::endl;
+                return make_ready_future<>();
+            }
+        }
+    }
+
+    if (!warning.empty()) {
+        std::cout << "[WARN] backtest_driver: " << warning
+                  << "; falling back to embedded sample ticks for "
+                  << instrument_id << std::endl;
+    }
+
     std::vector<tick_record> ticks;
     ticks.emplace_back(tick_record{
         .timestamp_nanos = 0,
@@ -194,8 +338,6 @@ future<> backtest_driver::run() {
     std::cout << "[INFO] backtest_driver: starting replay" << std::endl;
 
     for (auto& [instrument_id, ticks] : _tick_data) {
-        auto session = backtest_clock::get_session(instrument_id);
-
         for (const auto& tick : ticks) {
             _clock.advance_to(tick.timestamp_nanos);
 
@@ -233,6 +375,19 @@ void backtest_driver::replay_tick(const sstring& instrument_id, const tick_recor
         evt.volume = tick.volume;
         evt.turnover = tick.turnover;
         evt.open_interest = tick.open_interest;
+        evt.raw_md.instrument_id = instrument_id;
+        evt.raw_md.update_time = tick.time_str;
+        evt.raw_md.last_price = tick.last_price;
+        evt.raw_md.volume = tick.volume;
+        evt.raw_md.last_volume = tick.volume;
+        evt.raw_md.turnover = tick.turnover;
+        evt.raw_md.open_interest = tick.open_interest;
+        evt.raw_md.last_open_interest = tick.open_interest;
+        evt.raw_md.open_price = tick.open_price;
+        evt.raw_md.highest_price = tick.high_price;
+        evt.raw_md.lowest_price = tick.low_price;
+        evt.raw_md.average_price = tick.last_price;
+        evt.raw_md.trading_day = tick.trading_day;
 
         _event_bus->enqueue(evt);
     }

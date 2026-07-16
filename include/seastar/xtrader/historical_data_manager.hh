@@ -36,6 +36,27 @@ struct historical_bar {
     double open_interest = 0.0;
 };
 
+enum class data_domain {
+    raw,
+    dominant,
+    live_capture,
+};
+
+inline const char* to_string(data_domain d) {
+    switch (d) {
+        case data_domain::raw:          return "raw";
+        case data_domain::dominant:     return "dominant";
+        case data_domain::live_capture: return "live_capture";
+        default: return "unknown";
+    }
+}
+
+inline data_domain parse_data_domain(const std::string& s) {
+    if (s == "dominant")     return data_domain::dominant;
+    if (s == "live_capture") return data_domain::live_capture;
+    return data_domain::raw;
+}
+
 struct dataset_manifest {
     std::filesystem::path manifest_path;
     std::filesystem::path dataset_dir;
@@ -43,8 +64,16 @@ struct dataset_manifest {
     std::string exchange;
     std::string timeframe;
     std::string source;
+    data_domain domain = data_domain::raw;
     std::string active_file;
     std::filesystem::path active_file_path;
+    std::string start_datetime;
+    std::string end_datetime;
+    size_t row_count = 0;
+    std::string manifest_hash;
+    std::string last_import_mode;
+    std::string last_import_time;
+    std::string status = "unknown";
 };
 
 class historical_data_manager {

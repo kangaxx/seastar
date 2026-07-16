@@ -46,6 +46,11 @@ struct strategy_context {
 
 class strategy_lifecycle_manager {
 public:
+    using submit_order_handler_t = std::function<future<domain::order_status>(const domain::order_request&)>;
+    using cancel_order_handler_t = std::function<future<domain::order_status>(const sstring& order_sys_id)>;
+    using position_query_handler_t = std::function<domain::position_view()>;
+    using account_query_handler_t = std::function<const domain::trading_account*()>;
+
     strategy_lifecycle_manager() = default;
     ~strategy_lifecycle_manager() = default;
 
@@ -58,17 +63,44 @@ public:
     future<> stop_all();
     future<> stop_strategy(const sstring& strategy_id);
 
+    void set_submit_order_handler(submit_order_handler_t handler) {
+        _submit_order_handler = std::move(handler);
+    }
+
+    void set_cancel_order_handler(cancel_order_handler_t handler) {
+        _cancel_order_handler = std::move(handler);
+    }
+
+    void set_position_query_handler(position_query_handler_t handler) {
+        _position_query_handler = std::move(handler);
+    }
+
+    void set_account_query_handler(account_query_handler_t handler) {
+        _account_query_handler = std::move(handler);
+    }
+
+    void set_subscription_registry(subscription_registry* registry) noexcept {
+        _subscription_registry = registry;
+    }
+
     bool is_initialized() const noexcept { return _initialized; }
     size_t strategy_count() const noexcept { return _strategies.size(); }
 
     std::shared_ptr<strategy_base> get_strategy(const sstring& strategy_id);
     strategy_context* get_strategy_context(const sstring& strategy_id);
+    const std::unordered_map<sstring, std::shared_ptr<strategy_base>>&
+        all_strategies() const noexcept { return _strategies; }
 
 private:
-    strategy_context make_default_context(const sstring& strategy_id);
+    strategy_context make_default_context(const strategy_base& strategy);
 
     std::unordered_map<sstring, std::shared_ptr<strategy_base>> _strategies;
     std::unordered_map<sstring, strategy_context> _contexts;
+    submit_order_handler_t _submit_order_handler;
+    cancel_order_handler_t _cancel_order_handler;
+    position_query_handler_t _position_query_handler;
+    account_query_handler_t _account_query_handler;
+    subscription_registry* _subscription_registry = nullptr;
     bool _initialized = false;
 };
 

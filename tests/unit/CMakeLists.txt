@@ -537,6 +537,17 @@ seastar_add_test (xtrader_runtime_sharded
     ../../src/xtrader/runtime_engine.cc
     ../../src/xtrader/runtime_sharded.cc)
 
+seastar_add_test (xtrader_phase4_minimal
+  SOURCES
+    xtrader_phase4_minimal_test.cc
+    ../../src/xtrader/domain_types.cc
+    ../../src/xtrader/strategy_base.cc
+    ../../src/xtrader/strategy_lifecycle.cc
+    ../../src/xtrader/subscription_registry.cc
+    ../../src/xtrader/event_bus.cc
+    ../../src/xtrader/backtest_driver.cc
+    ../../src/xtrader/historical_data_manager.cc)
+
 seastar_add_test (reactor_backend
   SOURCES reactor_backend_test.cc)
 

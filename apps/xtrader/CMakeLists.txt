@@ -37,8 +37,13 @@ seastar_add_app(xtrader_demo SOURCES
     ../../src/xtrader/subscription_registry.cc
     ../../src/xtrader/event_bus.cc
     ../../src/xtrader/order_intent.cc
+    ../../src/xtrader/redis_metadata.cc
+    ../../src/xtrader/web_api_handler.cc
     ../../src/xtrader/backtest_driver.cc
-    ../../src/xtrader/historical_data_manager.cc)
+    ../../src/xtrader/historical_data_manager.cc
+    ../../src/xtrader/redis_sync_client.cc
+    ../../src/xtrader/performance_metrics.cc
+    ../../src/xtrader/health_check.cc)
 
 # CTP API 配置
 set(CTP_API_DIR "${CMAKE_SOURCE_DIR}/api/ctp/v6.7.2/linux64")
@@ -52,7 +57,8 @@ target_include_directories(app_xtrader_demo PRIVATE
     ${CTP_API_DIR})
 
 target_link_libraries(app_xtrader_demo PRIVATE
-    ${CTP_LIBS})
+    ${CTP_LIBS}
+    hiredis)
 
 seastar_add_app(xtrader_cli SOURCES
     xtrader_cli.cc
