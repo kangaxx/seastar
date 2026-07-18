@@ -605,24 +605,122 @@ nav run_import_menu(launch_options& options) {
 }
 
 void run_root_menu() {
-    launch_options options;
-    seastar::xtrader::redis_sync_client redis;
-
     while (true) {
-        std::cout << "\n[Root Menu]\n"
-            << "  l) Live\n"
-            << "  r) Replay\n"
-            << "  i) Import\n"
-            << "  b) Data Brief\n"
-            << "  d) Historical Redis\n"
-            << "  t) Heartbeat Test\n"
-            << "  q) Quit\n"
-            << "Select run mode: ";
+        std::cout << "\n========== X-Trader CLI ==========" << std::endl;
+        std::cout << "1) Live" << std::endl;
+        std::cout << "2) Replay" << std::endl;
+        std::cout << "3) Import" << std::endl;
+        std::cout << "4) Data Brief" << std::endl;
+        std::cout << "5) Config Info" << std::endl;
+        std::cout << "6) Heartbeat Test" << std::endl;
+        std::cout << "q) Quit" << std::endl;
+        std::cout << "==================================" << std::endl;
+        std::cout << "Select: ";
 
         std::string input;
-        if (!std::getline(std::cin, input)) {
+        std::getline(std::cin, input);
+        input = to_lower(input);
+
+        if (input == "1") {
+            std::cout << "[TODO] Live mode" << std::endl;
+        } else if (input == "2") {
+            std::cout << "[TODO] Replay mode" << std::endl;
+        } else if (input == "3") {
+            run_import_menu();
+        } else if (input == "4") {
+            std::cout << "[TODO] Data brief" << std::endl;
+        } else if (input == "5") {
+            run_config_info_menu();
+        } else if (input == "6") {
+            run_heartbeat_test();
+        } else if (input == "q" || input == "quit" || input == "exit") {
+            std::cout << "Goodbye!" << std::endl;
             break;
+        } else {
+            std::cout << "Invalid option" << std::endl;
         }
+    }
+}
+
+void run_config_info_menu() {
+    while (true) {
+        std::cout << "\n========== Config Info ==========" << std::endl;
+        std::cout << "1) Show Info" << std::endl;
+        std::cout << "u) Up" << std::endl;
+        std::cout << "h) Home" << std::endl;
+        std::cout << "================================" << std::endl;
+        std::cout << "Select: ";
+
+        std::string input;
+        std::getline(std::cin, input);
+        input = to_lower(input);
+
+        if (input == "1") {
+            show_config_info();
+        } else if (input == "u" || input == "back") {
+            break;  // Back to parent menu
+        } else if (input == "h" || input == "home" || input == "root") {
+            while (true) {
+                std::cout << "Back to root menu (y/n)? ";
+                std::string confirm;
+                std::getline(std::cin, confirm);
+                if (to_lower(confirm) == "y") {
+                    return;  // Return to root menu
+                } else if (to_lower(confirm) == "n") {
+                    break;  // Break inner loop, continue in config menu
+                }
+            }
+        } else {
+            std::cout << "Invalid option" << std::endl;
+        }
+    }
+}
+
+void show_config_info() {
+    std::cout << "\n========== Configuration Info ==========" << std::endl;
+    std::cout << "Version:    " << seastar::xtrader::version << std::endl;
+    std::cout << "Build:      " << seastar::xtrader::build_type << std::endl;
+    std::cout << "Git Commit: " << seastar::xtrader::git_commit << std::endl;
+    std::cout << "Git Branch: " << seastar::xtrader::git_branch << std::endl;
+    std::cout << "Build Time: " << seastar::xtrader::build_timestamp << std::endl;
+    std::cout << "========================================" << std::endl;
+
+    // 配置文件路径信息
+    std::cout << "\n--- Config File Paths ---" << std::endl;
+
+    // 尝试查找配置文件
+    std::vector<std::string> config_paths = {
+        "/etc/xtrader/xtrader.ini",
+        "/home/xtrader/config/xtrader.ini",
+        "./config/xtrader.ini",
+        "./xtrader.ini"
+    };
+
+    for (const auto& path : config_paths) {
+        std::ifstream check(path);
+        if (check.good()) {
+            std::cout << "[FOUND] " << path << std::endl;
+        } else {
+            std::cout << "[MISSING] " << path << std::endl;
+        }
+    }
+
+    // Redis 配置
+    std::cout << "\n--- Redis Configuration ---" << std::endl;
+    std::cout << "Default Host: 127.0.0.1:6379" << std::endl;
+
+    // CTP 配置
+    std::cout << "\n--- CTP Configuration ---" << std::endl;
+    std::cout << "API Library: libthosttraderapi_se.so" << std::endl;
+    std::cout << "Market Data API: libthostmduserapi_se.so" << std::endl;
+
+    // 数据目录
+    std::cout << "\n--- Data Directories ---" << std::endl;
+    std::cout << "Default Data Root: /data/x_trader_data" << std::endl;
+    std::cout << "Logs Directory:    /data/x_trader_data/logs" << std::endl;
+    std::cout << "Config Directory:  /data/x_trader_data/config" << std::endl;
+    std::cout << "========================================" << std::endl;
+}
 
         const auto normalized = to_lower(input);
         if (normalized == "q" || normalized == "quit" || normalized == "exit") {
