@@ -46,7 +46,7 @@ const std::string ENC_PREFIX = "ENCv1:"; // 密文标记前缀
 //   - 换 Pepper 会导致所有已加密数据不可读（密钥轮换效果）
 //   - 不应提交到公开仓库
 // ============================================================
-const std::string COMPILE_TIME_PEPPER = "X-Trader::v0.1.2::salt-"
+const std::string COMPILE_TIME_PEPPER = "X-Trader::v0.1.2::salt-";
 
 // ============================================================
 // 判断字段是否需要加密（按字段名识别敏感字段）
